@@ -2,11 +2,14 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import joblib
 import pandas as pd
-import numpy as np
+import os
+import uvicorn
 
 app = FastAPI(title="Phishing Detection API")
 
+# ===============================
 # Load Model
+# ===============================
 model_filename = "xgboost_model.joblib"
 
 try:
@@ -16,7 +19,10 @@ except Exception as e:
     print(f"Model loading failed: {e}")
     model = None
 
-# Define Expected Column Order (MUST match training)
+# ===============================
+# Expected Column Order
+# MUST match training dataset
+# ===============================
 COLUMN_ORDER = [
     'NumDots', 'SubdomainLevel', 'PathLevel', 'UrlLength', 'NumDash',
     'NumDashInHostname', 'AtSymbol', 'TildeSymbol', 'NumUnderscore',
@@ -35,6 +41,9 @@ COLUMN_ORDER = [
     'ExtMetaScriptLinkRT', 'PctExtNullSelfRedirectHyperlinksRT'
 ]
 
+# ===============================
+# Request Schema
+# ===============================
 class PredictionInput(BaseModel):
     NumDots: int
     SubdomainLevel: int
@@ -85,7 +94,16 @@ class PredictionInput(BaseModel):
     ExtMetaScriptLinkRT: int
     PctExtNullSelfRedirectHyperlinksRT: int
 
+# ===============================
+# Health Check Endpoint
+# ===============================
+@app.get("/")
+def health_check():
+    return {"status": "API Running Successfully 🚀"}
 
+# ===============================
+# Prediction Endpoint
+# ===============================
 @app.post("/predict")
 async def predict(data: PredictionInput):
 
@@ -93,20 +111,14 @@ async def predict(data: PredictionInput):
         raise HTTPException(status_code=500, detail="Model not loaded")
 
     try:
-        # Convert request to dictionary
         feature_values = data.model_dump()
 
-        # Ensure correct column order
         input_df = pd.DataFrame([feature_values])
         input_df = input_df[COLUMN_ORDER]
 
-        # Prediction
         prediction = model.predict(input_df)[0]
-
-        # Probability (important!)
         probability = model.predict_proba(input_df)[0][1]
 
-        # Risk level logic
         if probability > 0.8:
             risk_level = "High Risk"
         elif probability > 0.5:
@@ -122,3 +134,11 @@ async def predict(data: PredictionInput):
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ===============================
+# Run Server (Render Compatible)
+# ===============================
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run("app:app", host="0.0.0.0", port=port)
